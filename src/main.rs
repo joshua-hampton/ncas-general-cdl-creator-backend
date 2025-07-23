@@ -137,16 +137,20 @@ async fn main() {
     ];
     let cors = CorsLayer::new().allow_origin(origins);
 
+    let root_addr = "/ncas-general-cdl/api";
     // Define the routes
     let app = Router::new()
-        .route("/status", get(status))
-        .route("/json_response", get(json_response))
-        .route("/simple_json", get(simple_json))
-        .route("/create-cdl", get(get_ncas_netcdf_cdl))
+        .route(&format!("{}/status", root_addr), get(status))
+        .route(&format!("{}/json_response", root_addr), get(json_response))
+        .route(&format!("{}/simple_json", root_addr), get(simple_json))
+        .route(
+            &format!("{}/create-cdl", root_addr),
+            get(get_ncas_netcdf_cdl),
+        )
         .layer(cors);
 
     // Start the server
     let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await.unwrap();
-    info!("Server is running on http://0.0.0.0:3000");
+    info!("Server is running on http://0.0.0.0:3000{}", root_addr);
     axum::serve(listener, app).await.unwrap();
 }
