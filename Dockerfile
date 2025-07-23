@@ -4,7 +4,7 @@ COPY . .
 RUN cargo install --path .
 
 FROM ubuntu:noble
-RUN apt-get update && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install curl -y && rm -rf /var/lib/apt/lists/*
 COPY --from=builder /usr/local/cargo/bin/rust-backend /usr/local/bin/rust-backend
 CMD ["rust-backend"]
 
