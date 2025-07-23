@@ -1,0 +1,70 @@
+name: Release Docker Image and Update K8s Deployment
+
+on:
+  release:
+    types: [published] # This workflow runs when a new release is published
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest # Use the latest Ubuntu runner
+
+    steps:
+      - name: Checkout Application Repository
+        uses: actions/checkout@v4 # Checkout the repository containing your application code and Dockerfile
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3 # Set up Docker Buildx for multi-platform builds
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3 # Log in to Docker Hub using provided credentials
+        with:
+          username: jmhampton
+          password: ${{ secrets.DOCKER_TOKEN }}
+
+      - name: Extract Release Tag
+        id: get_tag # Assign an ID to this step to reference its outputs
+        run: echo "RELEASE_TAG=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT # Extract the tag name from GITHUB_REF
+
+      - name: Build and Push Docker Image
+        uses: docker/build-push-action@v5 # Build and push the Docker image
+        with:
+          context: . # Build context is the current directory (application repo)
+          push: true # Push the image to Docker Hub
+          tags: |
+            jmhampton/ncas-general-cdl-creator-backend:${{ steps.get_tag.outputs.RELEASE_TAG }}
+          cache-from: type=gha # Use GitHub Actions cache for faster builds
+          cache-to: type=gha,mode=max
+
+      - name: Checkout Kubernetes Configuration Repository
+        uses: actions/checkout@v4 # Checkout the repository where your Kubernetes YAML files are located
+        with:
+          repository: joshua-hampton/ncas-general-cdl-creator-k8s-yaml
+          path: k8s-repo # Checkout this repository into a subdirectory named 'k8s-repo'
+          token: ${{ secrets.GH_TOKEN }}
+
+      - name: Install yq (YAML processor)
+        run: |
+          sudo snap install yq # Install yq for easy YAML file manipulation
+
+      - name: Update Kubernetes Deployment Image
+        working-directory: ./k8s-repo # Change working directory to the k8s repo
+        run: |
+          # Define variables for clarity
+          # The path here is relative to the 'k8s-repo' directory
+          K8S_DEPLOYMENT_FILE="yaml/backend-deployment.yaml" # Adjust this path if your file is elsewhere within the k8s repo
+          DOCKER_IMAGE_NAME="jmhampton/ncas-general-cdl-creator-backend" # Your Docker Hub image name
+          NEW_IMAGE_TAG="${{ steps.get_tag.outputs.RELEASE_TAG }}" # The new image tag from the release
+
+          # Use yq to update the image in the deployment file
+          yq e '.spec.template.spec.containers[0].image = "'"$DOCKER_IMAGE_NAME:$NEW_IMAGE_TAG"'"' -i "$K8S_DEPLOYMENT_FILE"
+
+          echo "Updated $K8S_DEPLOYMENT_FILE to use image: $DOCKER_IMAGE_NAME:$NEW_IMAGE_TAG"
+
+      - name: Commit and Push Changes to Kubernetes Repository
+        working-directory: ./k8s-repo # Ensure we are in the k8s repo directory
+        run: |
+          git config user.name "github-actions[bot]" # Configure Git user name
+          git config user.email "github-actions[bot]@users.noreply.github.com" # Configure Git user email
+          git add yaml/backend-deployment.yaml # Add the modified deployment file (path relative to k8s-repo)
+          git commit -m "Update Kubernetes deployment image to ${{ steps.get_tag.outputs.RELEASE_TAG }}" || echo "No changes to commit" # Commit changes, ignore if no changes
+          git push # Push the changes to the Kubernetes repository
